@@ -1,3 +1,75 @@
+const cors = require("cors");
+const bodyParser = require("body-parser");
+const dotenv = require("dotenv");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const mysql = require("mysql2");
+const session = require("express-session");
+const passport = require("passport");
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const validator = require("validator");
+const db = require('./db');
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const secret = process.env.JWT_SECRET;
+
+app.use(cors());
+app.use(bodyParser.json());
+app.use(express.json());
+
+//register
+
+app.post('/register', (req,res) => {
+  const {name,email,phone,password} = req.body;
+
+  if(!name || !email || !phone || !password) {
+    return res.status(400).json({ Error: "All fields are required"});
+  }
+  if(!validator.isEmail(email)) {
+    return res.status(400).json({ Error: "Invalid email"});
+  }
+  if(!validator.isMobilePhone(phone, "any")) {
+    return res.status(400).json({ Error: "Invalid phone number"});
+  }
+  if(!validator.isStrongPassword(password)) {
+    return res.status(400).json({ Error: "Password must contain uppercase, lowercase, number and symbol"});
+  }
+
+  db.query('select * from users where email=? OR phone=?',[email,phone], async (err,results) =>{
+    if(err) {
+      return res.status(500).json({ Error: "Database error"});
+    }
+    if(results.length > 0) {
+      return res.status(400).json({ Error: "The user with this email or phone already exist"});
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    const sql = 'insert into users(name,email,phone,password_hash) values(?,?,?,?)';
+    db.query(sql,[name,email,phone,hashedPassword], (err, result) => {
+      if(err) {
+        return res.status(500).json({Error: "Database error"});
+      }
+
+      const token = jwt.sign({id: result.insertId, name, email, phone}, secret, { expiresIn: "30d"});
+
+      const user = {id: result.insertId, name, email, phone};
+
+      res.status(201).json({
+        message: "user created",
+        token,
+        user: user
+      })
+
+    });
+  });
+});
+
+//login
+
 app.post('/login', (req, res) => {
   const { identifier, password } = req.body;
 
@@ -47,4 +119,9 @@ app.post('/login', (req, res) => {
       }
     });
   });
+});
+
+
+app.listen(PORT, () => {
+  console.log(`The api is running on localhost:${PORT}`);
 });
