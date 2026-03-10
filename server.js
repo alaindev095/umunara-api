@@ -1,5 +1,5 @@
+const express = require('express');
 const cors = require("cors");
-const bodyParser = require("body-parser");
 const dotenv = require("dotenv");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
@@ -17,33 +17,35 @@ const PORT = process.env.PORT || 3000;
 const secret = process.env.JWT_SECRET;
 
 app.use(cors());
-app.use(bodyParser.json());
 app.use(express.json());
 
 //register
 
 app.post('/register', (req,res) => {
-  const {name,email,phone,password} = req.body;
+  const {name,email,phone,password,confirm} = req.body;
 
-  if(!name || !email || !phone || !password) {
-    return res.status(400).json({ Error: "All fields are required"});
+  if(!name || !email || !phone || !password || !confirm) {
+    return res.status(400).json({ error: "All fields are required"});
   }
   if(!validator.isEmail(email)) {
-    return res.status(400).json({ Error: "Invalid email"});
+    return res.status(400).json({ error: "Invalid email"});
   }
   if(!validator.isMobilePhone(phone, "any")) {
-    return res.status(400).json({ Error: "Invalid phone number"});
+    return res.status(400).json({ error: "Invalid phone number"});
   }
   if(!validator.isStrongPassword(password)) {
-    return res.status(400).json({ Error: "Password must contain uppercase, lowercase, number and symbol"});
+    return res.status(400).json({ error: "Password must contain uppercase, lowercase, number and symbol"});
+  }
+  if(password !== confirm) {
+    return res.status(400).json({ error: "Password not matching"});
   }
 
   db.query('select * from users where email=? OR phone=?',[email,phone], async (err,results) =>{
     if(err) {
-      return res.status(500).json({ Error: "Database error"});
+      return res.status(500).json({ error: "Database error"});
     }
     if(results.length > 0) {
-      return res.status(400).json({ Error: "The user with this email or phone already exist"});
+      return res.status(400).json({ error: "The user with this email or phone already exist"});
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -51,7 +53,7 @@ app.post('/register', (req,res) => {
     const sql = 'insert into users(name,email,phone,password_hash) values(?,?,?,?)';
     db.query(sql,[name,email,phone,hashedPassword], (err, result) => {
       if(err) {
-        return res.status(500).json({Error: "Database error"});
+        return res.status(500).json({error: "Database error"});
       }
 
       const token = jwt.sign({id: result.insertId, name, email, phone}, secret, { expiresIn: "30d"});
@@ -74,7 +76,7 @@ app.post('/login', (req, res) => {
   const { identifier, password } = req.body;
 
   if (!identifier || !password) {
-    return res.status(400).json({ Error: "All fields required" });
+    return res.status(400).json({ error: "All fields required" });
   }
 
   let query;
@@ -87,27 +89,24 @@ app.post('/login', (req, res) => {
     query = 'SELECT * FROM users WHERE phone = ?';
     value = identifier;
   } else {
-    return res.status(400).json({ Error: "Invalid Email or Phone number" });
+    return res.status(400).json({ error: "Invalid Email or Phone number" });
   }
 
   db.query(query, [value], async (err, results) => {
-    if (err) return res.status(500).json({ Error: "Database error" });
-    if (results.length === 0) return res.status(404).json({ Error: "User not found" });
+    if (err) return res.status(500).json({ error: "Database error" });
+    if (results.length === 0) return res.status(404).json({ error: "User not found" });
 
     const user = results[0];
 
-    // Compare password
     const isMatch = await bcrypt.compare(password, user.password_hash);
-    if (!isMatch) return res.status(401).json({ Error: "Incorrect password" });
+    if (!isMatch) return res.status(401).json({ error: "Incorrect password" });
 
-    // Create token
     const token = jwt.sign(
       { id: user.id, name: user.name, email: user.email },
       secret,
       { expiresIn: '30d' }
     );
 
-    // Return response
     return res.status(200).json({
       message: "Login successful",
       token: token,
